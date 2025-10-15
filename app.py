@@ -141,15 +141,16 @@ SCANNER_HTML = """
 
   async function listCameras(){
     try {
-      const devices = await ZXing.BrowserCodeReader.listVideoInputDevices();
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter(device => device.kind === 'videoinput');
       deviceSelect.innerHTML = '';
-      if (devices.length === 0) {
+      if (videoDevices.length === 0) {
         const opt = document.createElement('option');
         opt.textContent = 'Nenhuma câmera encontrada';
         deviceSelect.appendChild(opt);
         return;
       }
-      devices.forEach((d, i) => {
+      videoDevices.forEach((d, i) => {
         const opt = document.createElement('option');
         opt.value = d.deviceId;
         opt.textContent = d.label || `Câmera ${i+1}`;
@@ -157,7 +158,7 @@ SCANNER_HTML = """
       });
       const back = [...deviceSelect.options].find(o => /back|traseira|rear|environment/i.test(o.textContent));
       if (back) deviceSelect.value = back.value;
-      currentDeviceId = deviceSelect.value;
+      currentDeviceId = deviceSelect.value || videoDevices[0].deviceId;
     } catch(e) {
       setStatus('Erro ao listar câmeras: ' + e.message, false, true);
     }
@@ -184,7 +185,14 @@ SCANNER_HTML = """
       stopBtn.disabled = false;
       setStatus('Iniciando câmera...');
 
-      await codeReader.decodeFromVideoDevice(currentDeviceId, video, (result, err) => {
+      const constraints = {
+        video: {
+          deviceId: currentDeviceId ? { exact: currentDeviceId } : undefined,
+          facingMode: currentDeviceId ? undefined : { ideal: 'environment' }
+        }
+      };
+
+      codeReader.decodeFromConstraints(constraints, video, (result, err) => {
         if (result) {
           const code = result.getText();
           if (code && code !== lastScannedCode) {
