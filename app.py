@@ -1,12 +1,11 @@
 import threading
 import socket
 import base64
-from flask import Flask, jsonify, render_template_string
+from flask import Flask, jsonify, render_template_string, request
 import pyqrcode
 import numpy as np
-import cv2  # Aqui está a importação correta do OpenCV
+import cv2
 
-# Cria o aplicativo Flask
 app = Flask(__name__)
 
 # Função para obter o IP da máquina
@@ -24,38 +23,103 @@ SCANNER_HTML = """
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Leitor de Código de Barras</title>
   <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; padding: 16px; }
-    h1 { font-size: 18px; margin: 0 0 8px; }
-    .hint { color:#555; font-size:14px; margin-bottom:12px; }
-    video { width: 100%; max-width: 480px; background:#000; border-radius: 8px; }
-    .last { margin-top: 12px; font-size: 14px; }
-    .ok { color: #0a7f20; }
-    .err { color: #b00020; }
-    .small { font-size: 12px; color:#666; }
-    .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
-    select { padding:6px 8px; font-size:14px; }
-    button { padding:8px 12px; font-size:14px; border:0; border-radius:6px; background:#111; color:#fff; cursor:pointer; }
-    button:disabled { opacity:.5; cursor:not-allowed; }
-    .box { margin:12px 0; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      margin: 0;
+      padding: 16px;
+      background: #f5f5f5;
+      min-height: 100vh;
+    }
+    .container { max-width: 600px; margin: 0 auto; }
+    h1 { font-size: 22px; margin: 0 0 12px; color: #1a1a1a; }
+    .hint { color:#666; font-size:14px; margin-bottom:16px; line-height:1.5; }
+    .video-container {
+      position: relative;
+      background:#000;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    video {
+      width: 100%;
+      display: block;
+      aspect-ratio: 4/3;
+    }
+    .controls {
+      display:flex;
+      gap:8px;
+      margin:16px 0;
+      flex-wrap:wrap;
+    }
+    select {
+      flex: 1;
+      min-width: 150px;
+      padding:10px 12px;
+      font-size:14px;
+      border: 1px solid #ddd;
+      border-radius:8px;
+      background: white;
+    }
+    button {
+      padding:10px 20px;
+      font-size:14px;
+      border:0;
+      border-radius:8px;
+      background:#1a73e8;
+      color:#fff;
+      cursor:pointer;
+      font-weight: 500;
+      transition: background 0.2s;
+    }
+    button:hover:not(:disabled) { background:#1557b0; }
+    button:disabled { opacity:.5; cursor:not-allowed; background:#999; }
+    button.stop { background:#d93025; }
+    button.stop:hover:not(:disabled) { background:#b71c1c; }
+    .result-box {
+      background: white;
+      padding: 16px;
+      border-radius: 12px;
+      margin-top: 16px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    .result-label { font-size: 12px; color: #666; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .result-value { font-size: 18px; font-weight: 600; color: #1a1a1a; word-break: break-all; }
+    #status {
+      font-size: 14px;
+      color:#666;
+      margin-top: 8px;
+      padding: 8px;
+      border-radius: 6px;
+      background: #f5f5f5;
+    }
+    .ok { color: #0d652d; background: #e6f4ea !important; }
+    .err { color: #c5221f; background: #fce8e6 !important; }
   </style>
 </head>
 <body>
-  <h1>Leitor de Código de Barras (câmera do celular)</h1>
-  <div class="hint">Dê permissão para usar a câmera. Se possível, escolha a câmera traseira.</div>
+  <div class="container">
+    <h1>📱 Leitor de Código de Barras</h1>
+    <div class="hint">Aponte a câmera traseira do celular para o código de barras. A leitura é automática.</div>
 
-  <div class="row box">
-    <select id="deviceSelect"></select>
-    <button id="startBtn">Iniciar</button>
-    <button id="stopBtn" disabled>Parar</button>
+    <div class="controls">
+      <select id="deviceSelect"></select>
+      <button id="startBtn">Iniciar Câmera</button>
+      <button id="stopBtn" class="stop" disabled>Parar</button>
+    </div>
+
+    <div class="video-container">
+      <video id="video" playsinline autoplay></video>
+    </div>
+
+    <div class="result-box">
+      <div class="result-label">Último código lido</div>
+      <div class="result-value" id="lastCode">—</div>
+      <div id="status">Aguardando início...</div>
+    </div>
   </div>
 
-  <video id="video" playsinline></video>
-
-  <div class="last">
-    <div>Último código: <b id="lastCode">—</b></div>
-    <div id="status" class="small">Aguardando…</div>
-  </div>
-
+<script src="https://unpkg.com/@zxing/library@latest"></script>
 <script>
 (async function(){
   const codeReader = new ZXing.BrowserMultiFormatReader();
@@ -68,74 +132,88 @@ SCANNER_HTML = """
 
   let currentDeviceId = null;
   let running = false;
+  let lastScannedCode = '';
 
   function setStatus(msg, ok=false, err=false){
     statusEl.textContent = msg;
-    statusEl.className = 'small ' + (ok ? 'ok' : err ? 'err' : '');
+    statusEl.className = (ok ? 'ok' : err ? 'err' : '');
   }
 
   async function listCameras(){
-    const devices = await ZXing.BrowserCodeReader.listVideoInputDevices();
-    deviceSelect.innerHTML = '';
-    devices.forEach((d, i) => {
-      const opt = document.createElement('option');
-      opt.value = d.deviceId;
-      opt.textContent = d.label || `Câmera ${i+1}`;
-      deviceSelect.appendChild(opt);
-    });
-    // Preferir câmera traseira se houver
-    const back = [...deviceSelect.options].find(o => /back|traseira|rear/i.test(o.textContent));
-    if (back) deviceSelect.value = back.value;
-    currentDeviceId = deviceSelect.value;
+    try {
+      const devices = await ZXing.BrowserCodeReader.listVideoInputDevices();
+      deviceSelect.innerHTML = '';
+      if (devices.length === 0) {
+        const opt = document.createElement('option');
+        opt.textContent = 'Nenhuma câmera encontrada';
+        deviceSelect.appendChild(opt);
+        return;
+      }
+      devices.forEach((d, i) => {
+        const opt = document.createElement('option');
+        opt.value = d.deviceId;
+        opt.textContent = d.label || `Câmera ${i+1}`;
+        deviceSelect.appendChild(opt);
+      });
+      const back = [...deviceSelect.options].find(o => /back|traseira|rear|environment/i.test(o.textContent));
+      if (back) deviceSelect.value = back.value;
+      currentDeviceId = deviceSelect.value;
+    } catch(e) {
+      setStatus('Erro ao listar câmeras: ' + e.message, false, true);
+    }
   }
 
   deviceSelect.addEventListener('change', () => {
     currentDeviceId = deviceSelect.value;
     if (running) {
       stopScan();
-      startScan();
+      setTimeout(startScan, 300);
     }
   });
 
-  // Função para pedir permissão e iniciar a câmera
   async function startScan(){
-    if (!currentDeviceId) await listCameras();
-    running = true;
-    startBtn.disabled = true;
-    stopBtn.disabled = false;
-    setStatus('Iniciando câmera...');
     try {
-      // Solicitar permissão e iniciar o fluxo da câmera
-      await navigator.mediaDevices.getUserMedia({ video: { deviceId: currentDeviceId } })
-        .then(function(stream) {
-          video.srcObject = stream;
-          setStatus('Lendo… aponte a câmera para o código.');
-        })
-        .catch(function(err) {
-          setStatus('Erro ao acessar a câmera: ' + err, false, true);
-        });
+      if (!currentDeviceId) await listCameras();
+      if (!currentDeviceId) {
+        setStatus('Nenhuma câmera disponível', false, true);
+        return;
+      }
 
-      codeReader.decodeFromVideoDevice(currentDeviceId, video, (result, err) => {
+      running = true;
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+      setStatus('Iniciando câmera...');
+
+      await codeReader.decodeFromVideoDevice(currentDeviceId, video, (result, err) => {
         if (result) {
           const code = result.getText();
-          lastCodeEl.textContent = code;
-          setStatus('Código lido e enviado.', true, false);
-          // Debounce simples: não spammar servidor se ficar lendo o mesmo quadro várias vezes
-          if (!video.dataset._last || video.dataset._last !== code) {
-            video.dataset._last = code;
+          if (code && code !== lastScannedCode) {
+            lastScannedCode = code;
+            lastCodeEl.textContent = code;
+            setStatus('✓ Código lido com sucesso!', true, false);
+
             fetch('/api/submit', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ code })
-            }).catch(()=>{ /* ignore network errors silently */ });
+            })
+            .then(res => res.json())
+            .then(data => {
+              if (!data.ok) {
+                setStatus('Erro ao enviar código', false, true);
+              }
+            })
+            .catch(() => {
+              setStatus('Erro de conexão com servidor', false, true);
+            });
           }
-        } else if (err && !(err instanceof ZXing.NotFoundException)) {
-          setStatus('Erro de leitura: ' + err, false, true);
         }
       });
 
+      setStatus('📷 Aponte para o código de barras...');
+
     } catch(e) {
-      setStatus('Falha ao iniciar câmera: ' + e, false, true);
+      setStatus('Erro ao iniciar: ' + e.message, false, true);
       startBtn.disabled = false;
       stopBtn.disabled = true;
       running = false;
@@ -143,17 +221,26 @@ SCANNER_HTML = """
   }
 
   function stopScan(){
-    codeReader.reset();
+    try {
+      codeReader.reset();
+      const stream = video.srcObject;
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        video.srcObject = null;
+      }
+    } catch(e) {
+      console.error('Erro ao parar:', e);
+    }
     running = false;
     startBtn.disabled = false;
     stopBtn.disabled = true;
-    setStatus('Parado.');
+    lastScannedCode = '';
+    setStatus('Câmera parada');
   }
 
   startBtn.addEventListener('click', startScan);
   stopBtn.addEventListener('click', stopScan);
 
-  // Pré-carrega a lista de câmeras
   await listCameras();
 })();
 </script>
