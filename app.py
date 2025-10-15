@@ -121,8 +121,8 @@ SCANNER_HTML = """
 
 <script src="https://unpkg.com/@zxing/library@latest"></script>
 <script>
-(async function(){
-  const codeReader = new ZXing.BrowserMultiFormatReader();
+(function(){
+  let codeReader = null;
   const video = document.getElementById('video');
   const deviceSelect = document.getElementById('deviceSelect');
   const startBtn = document.getElementById('startBtn');
@@ -141,26 +141,44 @@ SCANNER_HTML = """
 
   async function listCameras(){
     try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+        setStatus('Seu navegador não suporta acesso à câmera', false, true);
+        return false;
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      stream.getTracks().forEach(track => track.stop());
+
       const devices = await navigator.mediaDevices.enumerateDevices();
       const videoDevices = devices.filter(device => device.kind === 'videoinput');
+
       deviceSelect.innerHTML = '';
       if (videoDevices.length === 0) {
         const opt = document.createElement('option');
         opt.textContent = 'Nenhuma câmera encontrada';
         deviceSelect.appendChild(opt);
-        return;
+        return false;
       }
+
       videoDevices.forEach((d, i) => {
         const opt = document.createElement('option');
         opt.value = d.deviceId;
         opt.textContent = d.label || `Câmera ${i+1}`;
         deviceSelect.appendChild(opt);
       });
+
       const back = [...deviceSelect.options].find(o => /back|traseira|rear|environment/i.test(o.textContent));
-      if (back) deviceSelect.value = back.value;
-      currentDeviceId = deviceSelect.value || videoDevices[0].deviceId;
+      if (back) {
+        deviceSelect.value = back.value;
+        currentDeviceId = back.value;
+      } else {
+        currentDeviceId = videoDevices[0].deviceId;
+      }
+
+      return true;
     } catch(e) {
-      setStatus('Erro ao listar câmeras: ' + e.message, false, true);
+      setStatus('Erro: ' + e.message, false, true);
+      return false;
     }
   }
 
@@ -174,10 +192,18 @@ SCANNER_HTML = """
 
   async function startScan(){
     try {
-      if (!currentDeviceId) await listCameras();
+      setStatus('Solicitando permissão...');
+
       if (!currentDeviceId) {
-        setStatus('Nenhuma câmera disponível', false, true);
-        return;
+        const hasCamera = await listCameras();
+        if (!hasCamera) {
+          setStatus('Não foi possível acessar a câmera', false, true);
+          return;
+        }
+      }
+
+      if (!codeReader) {
+        codeReader = new ZXing.BrowserMultiFormatReader();
       }
 
       running = true;
@@ -188,11 +214,13 @@ SCANNER_HTML = """
       const constraints = {
         video: {
           deviceId: currentDeviceId ? { exact: currentDeviceId } : undefined,
-          facingMode: currentDeviceId ? undefined : { ideal: 'environment' }
+          facingMode: !currentDeviceId ? 'environment' : undefined,
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
         }
       };
 
-      codeReader.decodeFromConstraints(constraints, video, (result, err) => {
+      await codeReader.decodeFromConstraints(constraints, video, (result, err) => {
         if (result) {
           const code = result.getText();
           if (code && code !== lastScannedCode) {
@@ -212,8 +240,12 @@ SCANNER_HTML = """
               }
             })
             .catch(() => {
-              setStatus('Erro de conexão com servidor', false, true);
+              setStatus('Erro de conexão', false, true);
             });
+
+            setTimeout(() => {
+              lastScannedCode = '';
+            }, 2000);
           }
         }
       });
@@ -221,7 +253,7 @@ SCANNER_HTML = """
       setStatus('📷 Aponte para o código de barras...');
 
     } catch(e) {
-      setStatus('Erro ao iniciar: ' + e.message, false, true);
+      setStatus('Erro: ' + e.message, false, true);
       startBtn.disabled = false;
       stopBtn.disabled = true;
       running = false;
@@ -230,7 +262,9 @@ SCANNER_HTML = """
 
   function stopScan(){
     try {
-      codeReader.reset();
+      if (codeReader) {
+        codeReader.reset();
+      }
       const stream = video.srcObject;
       if (stream) {
         stream.getTracks().forEach(track => track.stop());
@@ -249,7 +283,7 @@ SCANNER_HTML = """
   startBtn.addEventListener('click', startScan);
   stopBtn.addEventListener('click', stopScan);
 
-  await listCameras();
+  setStatus('Clique em "Iniciar Câmera" para começar');
 })();
 </script>
 </body>
