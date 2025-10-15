@@ -100,10 +100,12 @@ SCANNER_HTML = """
 <body>
   <div class="container">
     <h1>📱 Leitor de Código de Barras</h1>
-    <div class="hint">Aponte a câmera traseira do celular para o código de barras. A leitura é automática.</div>
+    <div class="hint" id="hint">Aponte a câmera traseira do celular para o código de barras. A leitura é automática.</div>
 
     <div class="controls">
-      <select id="deviceSelect"></select>
+      <select id="deviceSelect">
+        <option>Selecione uma câmera</option>
+      </select>
       <button id="startBtn">Iniciar Câmera</button>
       <button id="stopBtn" class="stop" disabled>Parar</button>
     </div>
@@ -129,6 +131,7 @@ SCANNER_HTML = """
   const stopBtn = document.getElementById('stopBtn');
   const lastCodeEl = document.getElementById('lastCode');
   const statusEl = document.getElementById('status');
+  const hintEl = document.getElementById('hint');
 
   let currentDeviceId = null;
   let running = false;
@@ -139,14 +142,32 @@ SCANNER_HTML = """
     statusEl.className = (ok ? 'ok' : err ? 'err' : '');
   }
 
+  function checkHTTPS(){
+    const isLocalhost = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+    const isHTTPS = location.protocol === 'https:';
+
+    if (!isLocalhost && !isHTTPS) {
+      hintEl.innerHTML = '<strong>⚠️ ATENÇÃO:</strong> A câmera só funciona em conexões seguras (HTTPS) ou localhost. No celular, use o IP local (exemplo: http://192.168.x.x:5000/scanner) conectado na mesma rede Wi-Fi.';
+      hintEl.style.color = '#c5221f';
+      hintEl.style.background = '#fce8e6';
+      hintEl.style.padding = '12px';
+      hintEl.style.borderRadius = '8px';
+      return false;
+    }
+    return true;
+  }
+
   async function listCameras(){
     try {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
-        setStatus('Seu navegador não suporta acesso à câmera', false, true);
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setStatus('Navegador não suporta acesso à câmera', false, true);
         return false;
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' }
+      });
+
       stream.getTracks().forEach(track => track.stop());
 
       const devices = await navigator.mediaDevices.enumerateDevices();
@@ -172,12 +193,22 @@ SCANNER_HTML = """
         deviceSelect.value = back.value;
         currentDeviceId = back.value;
       } else {
-        currentDeviceId = videoDevices[0].deviceId;
+        currentDeviceId = videoDevices[videoDevices.length - 1].deviceId;
       }
 
       return true;
     } catch(e) {
-      setStatus('Erro: ' + e.message, false, true);
+      let errorMsg = 'Erro ao acessar câmera';
+      if (e.name === 'NotAllowedError') {
+        errorMsg = 'Permissão negada. Autorize o acesso à câmera nas configurações do navegador.';
+      } else if (e.name === 'NotFoundError') {
+        errorMsg = 'Nenhuma câmera encontrada';
+      } else if (e.name === 'NotReadableError') {
+        errorMsg = 'Câmera em uso por outro aplicativo';
+      } else if (e.name === 'SecurityError') {
+        errorMsg = 'Acesso negado por segurança. Use HTTPS ou localhost.';
+      }
+      setStatus(errorMsg, false, true);
       return false;
     }
   }
@@ -280,9 +311,16 @@ SCANNER_HTML = """
     setStatus('Câmera parada');
   }
 
-  startBtn.addEventListener('click', startScan);
+  startBtn.addEventListener('click', () => {
+    if (!checkHTTPS()) {
+      setStatus('Conexão insegura. Veja o aviso acima.', false, true);
+      return;
+    }
+    startScan();
+  });
   stopBtn.addEventListener('click', stopScan);
 
+  checkHTTPS();
   setStatus('Clique em "Iniciar Câmera" para começar');
 })();
 </script>
@@ -318,12 +356,37 @@ def show_qr_window(url: str):
 
 # ===== Thread do Flask =====
 def run_server():
-    app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
+    import ssl
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+
+    # Tenta usar certificado SSL se existir, senão cria um temporário
+    try:
+        context.load_cert_chain('cert.pem', 'key.pem')
+        print("✓ Usando certificado SSL existente")
+        app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False, ssl_context=context)
+    except FileNotFoundError:
+        print("⚠️ Certificado SSL não encontrado, rodando sem HTTPS")
+        print("⚠️ No celular, você precisa estar na mesma rede Wi-Fi")
+        app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
 
 def main():
     ip = get_local_ip()
-    url = f"http://{ip}:5000/scanner"
-    print(f"Servidor em: {url}")
+
+    # Verifica se tem certificado SSL
+    import os
+    has_ssl = os.path.exists('cert.pem') and os.path.exists('key.pem')
+    protocol = 'https' if has_ssl else 'http'
+    url = f"{protocol}://{ip}:5000/scanner"
+
+    print(f"\n{'='*60}")
+    print(f"Servidor rodando em: {url}")
+    if has_ssl:
+        print("✓ SSL/HTTPS ativado")
+        print("⚠️  No celular, aceite o aviso de certificado autoassinado")
+    else:
+        print("⚠️  Rodando sem SSL (HTTP)")
+        print("⚠️  Certifique-se de estar na mesma rede Wi-Fi")
+    print(f"{'='*60}\n")
 
     # Sobe o servidor primeiro
     t = threading.Thread(target=run_server, daemon=True)
