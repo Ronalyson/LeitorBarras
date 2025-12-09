@@ -1,0 +1,6 @@
+flask
+werkzeug
+pyqrcode
+pypng
+numpy
+opencv-python
