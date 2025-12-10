@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "name": "LeitorMobile",
+    "slug": "leitormobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "android": {
+      "permissions": [
+        "CAMERA",
+        "INTERNET"
+      ],
+      "package": "com.leitor.mobile"
+    }
+  }
+}
