@@ -1,6 +1,26 @@
+pluginManagement {
+  repositories {
+    google()
+    mavenCentral()
+    gradlePluginPortal()
+    maven { url 'https://www.jitpack.io' }
+  }
+  plugins {
+    id("com.android.application") version "8.2.2"
+    id("com.facebook.react") version "0.73.6"
+  }
+}
+
 rootProject.name = 'LeitorMobile'
 
 dependencyResolutionManagement {
+  repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+  repositories {
+    google()
+    mavenCentral()
+    maven { url 'https://www.jitpack.io' }
+  }
+
   versionCatalogs {
     reactAndroidLibs {
       from(files(new File(["node", "--print", "require.resolve('react-native/package.json')"].execute(null, rootDir).text.trim(), "../gradle/libs.versions.toml")))
