@@ -2,6 +2,7 @@
   "name": "leitor-barras-mobile",
   "version": "1.0.0",
   "private": true,
+  "author": "Ronalyson",
   "main": "index.js",
   "scripts": {
     "start": "react-native start",
