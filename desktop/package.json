@@ -1,6 +1,6 @@
 {
   "name": "leitor-barras-desktop",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "main": "dist/main.js",
   "description": "Servidor WebSocket local + simulador de teclado para leitor de barras via Android.",

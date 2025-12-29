@@ -41,7 +41,7 @@ cd android
    - Aponte para o código; leitura contínua sem botão. Feedback vibratório/sonoro opcional.
 
 ## Desktop (Windows)
-1) Instalar dependências:
+1) Instalar dependências (versão 1.0.1):
 ```bash
 cd desktop
 yarn install
