@@ -69,6 +69,7 @@ yarn start   # modo dev com electron
 ## Observações de build offline
 - Todos os pacotes são open-source e gratuitos.
 - Para evitar dependência externa de tipos, removi `@types/robotjs` e incluí definição local em `desktop/src/types/robotjs.d.ts`. Caso o build do `robotjs` falhe, instale as ferramentas de build do Windows (MSVC + Python) e recompile; alternativa: trocar por `node-key-sender` (ajuste `desktop/src/server.ts`).
+- O `electron` fica em `devDependencies` (exigência do electron-builder). Se mover para `dependencies`, o `yarn dist` acusa erro.
 - Se precisar assinar o .exe, configure certificados no `electron-builder`.
 
 ## Próximos passos
