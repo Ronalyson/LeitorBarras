@@ -4,6 +4,7 @@
   "private": true,
   "main": "dist/main.js",
   "description": "Servidor WebSocket local + simulador de teclado para leitor de barras via Android.",
+  "author": "Ronalyson",
   "scripts": {
     "dev": "ts-node src/main.ts",
     "build": "tsc -p .",
@@ -33,12 +34,12 @@
     }
   },
   "dependencies": {
-    "electron": "^28.1.0",
     "ws": "^8.16.0",
     "robotjs": "^0.6.0",
     "node-machine-id": "^1.1.12"
   },
   "devDependencies": {
+    "electron": "^28.1.0",
     "typescript": "^5.3.3",
     "@types/node": "^20.10.5",
     "@types/ws": "^8.5.10",
