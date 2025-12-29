@@ -48,8 +48,8 @@ yarn install
 ```
 2) Build:
 ```bash
-yarn build   # compila TS para dist/
-yarn dist    # gera instalador .exe via electron-builder
+yarn build   # compila TS para dist/ e copia index.html do renderer
+yarn dist    # gera instalador .exe via electron-builder (chama build antes)
 ```
 3) Execução local:
 ```bash
@@ -70,6 +70,7 @@ yarn start   # modo dev com electron
 - Todos os pacotes são open-source e gratuitos.
 - Para evitar dependência externa de tipos, removi `@types/robotjs` e incluí definição local em `desktop/src/types/robotjs.d.ts`. Caso o build do `robotjs` falhe, instale as ferramentas de build do Windows (MSVC + Python) e recompile; alternativa: trocar por `node-key-sender` (ajuste `desktop/src/server.ts`).
 - O `electron` fica em `devDependencies` (exigência do electron-builder). Se mover para `dependencies`, o `yarn dist` acusa erro.
+- O build agora copia os arquivos estáticos do renderer (index.html, etc.) para `dist/renderer` antes de empacotar; se adicionar novos assets, mantenha-os em `src/renderer/`.
 - Se precisar assinar o .exe, configure certificados no `electron-builder`.
 
 ## Próximos passos
