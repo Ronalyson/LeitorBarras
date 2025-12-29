@@ -1,0 +1,49 @@
+{
+  "name": "leitor-barras-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "main": "dist/main.js",
+  "description": "Servidor WebSocket local + simulador de teclado para leitor de barras via Android.",
+  "scripts": {
+    "dev": "ts-node src/main.ts",
+    "build": "tsc -p .",
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "build": {
+    "appId": "com.leitor.barras",
+    "productName": "LeitorBarras",
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "nsis": {
+      "oneClick": true,
+      "allowToChangeInstallationDirectory": false,
+      "perMachine": true,
+      "runAfterFinish": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "icons/icon.ico"
+    }
+  },
+  "dependencies": {
+    "electron": "^28.1.0",
+    "ws": "^8.16.0",
+    "robotjs": "^0.6.0",
+    "node-machine-id": "^1.1.12"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "@types/node": "^20.10.5",
+    "@types/ws": "^8.5.10",
+    "@types/robotjs": "^0.6.4",
+    "electron-builder": "^24.6.0",
+    "ts-node": "^10.9.2"
+  }
+}
