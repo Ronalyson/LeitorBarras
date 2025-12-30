@@ -1,11 +1,12 @@
 buildscript {
     ext {
         buildToolsVersion = "34.0.0"
-        minSdkVersion = 21
+        minSdkVersion = 24
         compileSdkVersion = 34
         targetSdkVersion = 34
-        ndkVersion = "25.1.8937393"
-        kotlinVersion = "1.8.0"
+        // Mantém alinhado ao NDK instalado em C:\Users\Ronalyson\AppData\Local\Android\Sdk\ndk\25.2.9519653
+        ndkVersion = "25.2.9519653"
+        kotlinVersion = "1.9.10"
     }
     repositories {
         google()
@@ -14,7 +15,7 @@ buildscript {
     dependencies {
         classpath("com.android.tools.build:gradle")
         classpath("com.facebook.react:react-native-gradle-plugin")
-        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion")
     }
 }
 

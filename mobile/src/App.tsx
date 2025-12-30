@@ -9,50 +9,89 @@ import {
   TouchableOpacity,
   View,
   Vibration,
+  Platform,
+  AppState,
+  PermissionsAndroid,
 } from 'react-native';
-import {Camera, useCameraDevices} from 'react-native-vision-camera';
-import {useScanBarcodes, BarcodeFormat} from 'vision-camera-code-scanner';
+import {Camera, CameraType} from 'react-native-camera-kit';
 import Sound from 'react-native-sound';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {check, request, openSettings, PERMISSIONS, RESULTS} from 'react-native-permissions';
 import {DEFAULT_CONFIG, getDeviceId} from './config';
 import {AppConfig, ScanPayload} from './types';
 import {ScannerWebSocket} from './websocket';
 
 const STORAGE_KEY = '@scanner-config';
 
-const formats = [
-  BarcodeFormat.ALL_FORMATS,
-  BarcodeFormat.QR_CODE,
-  BarcodeFormat.EAN_13,
-  BarcodeFormat.EAN_8,
-  BarcodeFormat.CODE_128,
-  BarcodeFormat.CODE_39,
-  BarcodeFormat.UPC_A,
-];
-
 const App = () => {
-  const devices = useCameraDevices();
-  const device = devices.back;
-  const [hasPermission, setHasPermission] = useState(false);
+  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
   const [connected, setConnected] = useState(false);
   const [lastReadAt, setLastReadAt] = useState<number>(0);
   const wsRef = useRef<ScannerWebSocket | null>(null);
   const deviceId = useMemo(() => getDeviceId(), []);
   const [sound] = useState(() => new Sound('scan_success.mp3', Sound.MAIN_BUNDLE, () => {}));
+  const permKey =
+    Platform.OS === 'android' ? PERMISSIONS.ANDROID.CAMERA : PERMISSIONS.IOS.CAMERA;
 
-  const [frameProcessor, barcodes] = useScanBarcodes(formats, {
-    checkInverted: true,
-  });
+  const ensurePermission = async () => {
+    // 1) CameraKit APIs (alguns OEMs como Xiaomi/MIUI)
+    try {
+      const kitCheck = await Camera.checkDeviceCameraAuthorizationStatus?.();
+      console.log('[perm] CameraKit check ->', kitCheck);
+      if (kitCheck === true) return true;
+      const kitReq = await Camera.requestDeviceCameraAuthorization?.();
+      console.log('[perm] CameraKit request ->', kitReq);
+      if (kitReq === true) return true;
+    } catch (err) {
+      console.log('[perm] CameraKit error', err);
+    }
+
+    // 2) react-native-permissions
+    try {
+      const current = await check(permKey);
+      console.log('[perm] RNP current ->', current);
+      if (current === RESULTS.GRANTED || current === RESULTS.LIMITED) return true;
+      if (current === RESULTS.BLOCKED) {
+        Alert.alert(
+          'Permissao bloqueada',
+          'Ative a camera nas configuracoes do sistema para continuar.',
+          [
+            {text: 'Abrir configuracoes', onPress: () => openSettings()},
+            {text: 'Fechar', style: 'cancel'},
+          ],
+        );
+        return false;
+      }
+      const req = await request(permKey);
+      console.log('[perm] RNP request ->', req);
+      if (req === RESULTS.GRANTED || req === RESULTS.LIMITED) return true;
+    } catch (err) {
+      console.log('[perm] RNP error', err);
+    }
+
+    // 3) Prompt nativo Android
+    if (Platform.OS === 'android') {
+      const reqAndroid = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.CAMERA);
+      console.log('[perm] PermissionsAndroid request ->', reqAndroid);
+      if (reqAndroid === PermissionsAndroid.RESULTS.GRANTED) return true;
+    }
+
+    // Ultimo recurso: retorna false (UI continua renderizando camera)
+    return false;
+  };
 
   useEffect(() => {
     (async () => {
-      // Pede permissão de câmera e restaura config persistida.
-      const status = await Camera.requestCameraPermission();
-      setHasPermission(status === 'authorized');
+      console.log('[app] boot: solicitando permissao');
+      const granted = await ensurePermission();
+      setHasPermission(granted);
+      console.log('[app] permissao final ->', granted);
+
       const saved = await AsyncStorage.getItem(STORAGE_KEY);
-      if (saved) setConfig(JSON.parse(saved));
-      const client = new ScannerWebSocket(deviceId, saved ? JSON.parse(saved) : DEFAULT_CONFIG);
+      const savedConfig = saved ? JSON.parse(saved) : DEFAULT_CONFIG;
+      setConfig(savedConfig);
+      const client = new ScannerWebSocket(deviceId, savedConfig);
       client.subscribe(setConnected);
       client.connect();
       wsRef.current = client;
@@ -61,51 +100,45 @@ const App = () => {
   }, [deviceId]);
 
   useEffect(() => {
+    const sub = AppState.addEventListener('change', async state => {
+      if (state === 'active') {
+        const ok = await ensurePermission();
+        setHasPermission(ok);
+        console.log('[app] resume permission ->', ok);
+      }
+    });
+    return () => sub.remove();
+  }, []);
+
+  useEffect(() => {
     if (!wsRef.current) return;
-    // Sempre que config muda, reconecta e persiste.
     wsRef.current.updateConfig(config);
     AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(config));
   }, [config]);
 
-  useEffect(() => {
-    if (!barcodes.length) return;
+  const updateConfig = (changes: Partial<AppConfig>) => setConfig(prev => ({...prev, ...changes}));
+  const handleRead = (event: any) => {
+    console.log('[scan] raw event', event?.nativeEvent);
     const now = Date.now();
     if (now - lastReadAt < config.scanDelayMs) return;
-    const code = barcodes[0];
-    if (!code.displayValue) return;
+    const codeValue = event?.nativeEvent?.codeStringValue;
+    const format = event?.nativeEvent?.type || 'UNKNOWN';
+    if (!codeValue) return;
+
     setLastReadAt(now);
 
     const payload: ScanPayload = {
       type: 'SCAN',
       deviceId,
-      barcode: code.displayValue,
-      format: code.format || 'UNKNOWN',
+      barcode: codeValue,
+      format,
       timestamp: new Date().toISOString(),
     };
 
     wsRef.current?.sendScan(payload);
-
     if (config.vibrate) Vibration.vibrate(100);
     if (config.playSound && sound.isLoaded()) sound.play();
-  }, [barcodes, config, deviceId, lastReadAt, sound]);
-
-  if (!device) {
-    return (
-      <SafeAreaView style={styles.center}>
-        <Text>Nenhuma câmera encontrada.</Text>
-      </SafeAreaView>
-    );
-  }
-
-  if (!hasPermission) {
-    return (
-      <SafeAreaView style={styles.center}>
-        <Text>Permita acesso à câmera para iniciar.</Text>
-      </SafeAreaView>
-    );
-  }
-
-  const updateConfig = (changes: Partial<AppConfig>) => setConfig(prev => ({...prev, ...changes}));
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -117,14 +150,33 @@ const App = () => {
         </Text>
       </View>
 
+      {/* Renderiza a camera mesmo sem flag de permissao para evitar loop de bloqueio em OEMs */}
       <Camera
         style={styles.camera}
-        device={device}
-        isActive
-        enableZoomGesture
-        frameProcessor={frameProcessor}
-        frameProcessorFps={5}
+        cameraType={CameraType.Back}
+        scanBarcode
+        onReadCode={handleRead}
+        showFrame
+        laserColor="red"
+        frameColor="white"
       />
+
+      {hasPermission === false && (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>
+            Sem acesso a camera. Toque em "Permitir" ou habilite manualmente nas configuracoes.
+          </Text>
+          <TouchableOpacity
+            style={[styles.button, {marginTop: 8}]}
+            onPress={async () => {
+              const ok = await ensurePermission();
+              setHasPermission(ok);
+              if (!ok) openSettings();
+            }}>
+            <Text style={styles.buttonText}>Permitir</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       <View style={styles.form}>
         <TextInput
@@ -159,7 +211,7 @@ const App = () => {
         style={styles.button}
         onPress={() => {
           wsRef.current?.connect();
-          Alert.alert('Reconexão', 'Tentando reconectar...');
+          Alert.alert('Reconexao', 'Tentando reconectar...');
         }}>
         <Text style={styles.buttonText}>Reconectar</Text>
       </TouchableOpacity>
@@ -194,6 +246,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   buttonText: {color: '#fff', fontWeight: '700'},
+  banner: {
+    backgroundColor: '#ffcc00',
+    padding: 10,
+    marginHorizontal: 12,
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  bannerText: {color: '#111', fontWeight: '600'},
 });
 
 export default App;

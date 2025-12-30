@@ -2,3 +2,4 @@
 /desktop/node_modules
 /desktop/dist
 /mobile/android/.gradle
+/mobile/android/app/build
