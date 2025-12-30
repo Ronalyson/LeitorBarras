@@ -27,6 +27,7 @@ const App = () => {
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
   const [connected, setConnected] = useState(false);
+  const [connectionInfo, setConnectionInfo] = useState('Aguardando conexão');
   const [lastReadAt, setLastReadAt] = useState<number>(0);
   const wsRef = useRef<ScannerWebSocket | null>(null);
   const deviceId = useMemo(() => getDeviceId(), []);
@@ -92,7 +93,10 @@ const App = () => {
       const savedConfig = saved ? JSON.parse(saved) : DEFAULT_CONFIG;
       setConfig(savedConfig);
       const client = new ScannerWebSocket(deviceId, savedConfig);
-      client.subscribe(setConnected);
+      client.subscribe((isConnected, reason) => {
+        setConnected(isConnected);
+        if (reason) setConnectionInfo(reason);
+      });
       client.connect();
       wsRef.current = client;
       return () => client.close();
@@ -149,6 +153,7 @@ const App = () => {
           {connected ? 'Conectado' : 'Desconectado'}
         </Text>
       </View>
+      <Text style={styles.subtitle}>{connectionInfo}</Text>
 
       {/* Renderiza a camera mesmo sem flag de permissao para evitar loop de bloqueio em OEMs */}
       <Camera
@@ -224,6 +229,7 @@ const styles = StyleSheet.create({
   center: {flex: 1, alignItems: 'center', justifyContent: 'center'},
   header: {flexDirection: 'row', justifyContent: 'space-between', padding: 16, alignItems: 'center'},
   title: {color: '#fff', fontSize: 18, fontWeight: '700'},
+  subtitle: {color: '#c9d1d9', fontSize: 12, paddingHorizontal: 16, paddingBottom: 4},
   badge: {paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12, color: '#fff'},
   badgeOn: {backgroundColor: '#1f6feb'},
   badgeOff: {backgroundColor: '#8b949e'},

@@ -14,10 +14,21 @@ export const DEFAULT_CONFIG: AppConfig = {
 
 export const getDeviceId = (): string => {
   try {
-    // Usa identificador único do aparelho para rastrear origem das leituras.
-    const id = DeviceInfo.getUniqueId
-      ? DeviceInfo.getUniqueId()
-      : Platform.OS.toUpperCase();
+    // Usa identificador único do aparelho; prefere versão síncrona para evitar Promise serializada.
+    const rawSync = (DeviceInfo as any).getUniqueIdSync
+      ? (DeviceInfo as any).getUniqueIdSync()
+      : undefined;
+    const rawAsync = !rawSync && DeviceInfo.getUniqueId ? DeviceInfo.getUniqueId() : undefined;
+
+    let id: string = Platform.OS.toUpperCase();
+    if (typeof rawSync === 'string' && rawSync.length > 0) id = rawSync;
+    else if (rawAsync && typeof (rawAsync as any).then === 'function') {
+      // Nunca aguarda Promise aqui; evita cair em [object Object]
+      id = 'ASYNC_ID_PENDING';
+    } else if (typeof rawAsync === 'string') {
+      id = rawAsync;
+    }
+
     return `ANDROID_${id}`;
   } catch (err) {
     return `ANDROID_${Platform.OS.toUpperCase()}`;

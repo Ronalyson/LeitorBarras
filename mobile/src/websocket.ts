@@ -1,12 +1,13 @@
 import {AppConfig, ScanPayload} from './types';
 
-type Listener = (connected: boolean) => void;
+type Listener = (connected: boolean, reason?: string) => void;
 
 export class ScannerWebSocket {
   private ws: WebSocket | null = null;
   private connected = false;
   private onChange: Listener[] = [];
   private reconnectTimer: NodeJS.Timeout | null = null;
+  private heartbeatTimer: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly deviceId: string,
@@ -17,9 +18,9 @@ export class ScannerWebSocket {
     this.onChange.push(listener);
   }
 
-  private notify(connected: boolean) {
+  private notify(connected: boolean, reason?: string) {
     this.connected = connected;
-    this.onChange.forEach(fn => fn(connected));
+    this.onChange.forEach(fn => fn(connected, reason));
   }
 
   connect() {
@@ -32,20 +33,24 @@ export class ScannerWebSocket {
       } as any);
 
       this.ws.onopen = () => {
-        this.notify(true);
+        this.notify(true, 'conectado');
+        this.startHeartbeat();
       };
 
-      this.ws.onerror = () => {
-        this.notify(false);
+      this.ws.onerror = ev => {
+        this.notify(false, `erro de conexão: ${String((ev as any)?.message || '')}`);
         this.scheduleReconnect();
       };
 
-      this.ws.onclose = () => {
-        this.notify(false);
+      this.ws.onclose = ev => {
+        const reasonText = ev.reason ? ` ${ev.reason}` : '';
+        this.notify(false, `desconectado (${ev.code}${reasonText})`);
+        this.stopHeartbeat();
         this.scheduleReconnect();
       };
     } catch (err) {
-      this.notify(false);
+      this.notify(false, `exceção: ${String(err)}`);
+      this.stopHeartbeat();
       this.scheduleReconnect();
     }
   }
@@ -68,6 +73,7 @@ export class ScannerWebSocket {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
     }
+    this.stopHeartbeat();
     this.ws?.close();
     this.ws = null;
   }
@@ -78,5 +84,25 @@ export class ScannerWebSocket {
       this.reconnectTimer = null;
       this.connect();
     }, 1500);
+  }
+
+  private startHeartbeat() {
+    this.stopHeartbeat();
+    this.heartbeatTimer = setInterval(() => {
+      if (this.ws && this.ws.readyState === 1) {
+        try {
+          this.ws.send(
+            JSON.stringify({type: 'PING', deviceId: this.deviceId, ts: new Date().toISOString()}),
+          );
+        } catch {
+          // ignore
+        }
+      }
+    }, 5000);
+  }
+
+  private stopHeartbeat() {
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = null;
   }
 }
