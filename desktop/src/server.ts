@@ -12,7 +12,10 @@ export class ScannerServer {
   private wss: WebSocketServer | null = null;
   private clients = new Map<WebSocket, ConnectionInfo>();
 
-  constructor(private readonly callbacks: Callbacks) {}
+  constructor(private readonly callbacks: Callbacks) {
+    // Digitação o mais rápida possível para simular "colar" o código.
+    robot.setKeyboardDelay(0);
+  }
 
   start(port: number, token: string) {
     this.stop();
