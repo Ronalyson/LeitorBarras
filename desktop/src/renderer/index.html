@@ -19,6 +19,12 @@
     <div class="card">
       <h2>Status</h2>
       <div id="status">Carregando...</div>
+      <div style="margin-top:10px; display:flex; gap:10px; align-items:center;">
+        <img id="qr" width="140" height="140" style="background:#0d1117; border:1px solid #30363d;" />
+        <div style="flex:1; font-size:12px; color:#8b949e;">
+          Aponte a câmara do app mobile em "Ler QR de pareamento" para preencher IP/porta/token automaticamente.
+        </div>
+      </div>
     </div>
 
     <div class="card">
@@ -33,7 +39,10 @@
           <input id="token" type="text" value="PAREAMENTO" />
         </div>
       </div>
-      <button id="save">Salvar e reiniciar servidor</button>
+      <div class="row">
+        <button id="save" style="flex:1">Salvar e reiniciar servidor</button>
+        <button id="quit" style="background:#d73a49">Sair</button>
+      </div>
     </div>
 
     <div class="card">

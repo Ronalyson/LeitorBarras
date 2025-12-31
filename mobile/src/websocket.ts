@@ -8,6 +8,7 @@ export class ScannerWebSocket {
   private onChange: Listener[] = [];
   private reconnectTimer: NodeJS.Timeout | null = null;
   private heartbeatTimer: NodeJS.Timeout | null = null;
+  private shouldReconnect = false;
 
   constructor(
     private readonly deviceId: string,
@@ -25,6 +26,7 @@ export class ScannerWebSocket {
 
   connect() {
     // Conecta ao servidor desktop com headers de pareamento.
+    this.shouldReconnect = true;
     const url = `ws://${this.config.serverHost}:${this.config.serverPort}`;
     try {
       this.ws?.close();
@@ -56,9 +58,18 @@ export class ScannerWebSocket {
   }
 
   updateConfig(config: AppConfig) {
-    // Reaplica conexão sempre que IP/porta/token mudar.
+    // Atualiza sem reconectar automaticamente; o app decide quando conectar.
     this.config = config;
-    this.connect();
+  }
+
+  shutdown() {
+    this.shouldReconnect = false;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    this.stopHeartbeat();
+    this.ws?.close();
+    this.ws = null;
+    this.notify(false, 'desligado');
   }
 
   sendScan(payload: ScanPayload) {
@@ -69,16 +80,8 @@ export class ScannerWebSocket {
     this.ws.send(JSON.stringify(payload));
   }
 
-  close() {
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-    }
-    this.stopHeartbeat();
-    this.ws?.close();
-    this.ws = null;
-  }
-
   private scheduleReconnect() {
+    if (!this.shouldReconnect) return;
     if (this.reconnectTimer) return;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;

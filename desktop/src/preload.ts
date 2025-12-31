@@ -6,4 +6,5 @@ contextBridge.exposeInMainWorld('bridge', {
   // Eventos push do processo principal.
   onLog: (cb: (msg: string) => void) => ipcRenderer.on('log', (_e, msg) => cb(msg)),
   onClients: (cb: (clients: any[]) => void) => ipcRenderer.on('clients', (_e, clients) => cb(clients)),
+  quitApp: () => ipcRenderer.invoke('quit-app'),
 });

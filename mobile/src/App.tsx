@@ -23,20 +23,22 @@ import {ScannerWebSocket} from './websocket';
 
 const STORAGE_KEY = '@scanner-config';
 
+type ConfigPayload = {host: string; port: number; token: string};
+
 const App = () => {
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
   const [connected, setConnected] = useState(false);
-  const [connectionInfo, setConnectionInfo] = useState('Aguardando conexão');
+  const [connectionInfo, setConnectionInfo] = useState('Aguardando conexão manual');
   const [lastReadAt, setLastReadAt] = useState<number>(0);
+  const [configScanMode, setConfigScanMode] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const wsRef = useRef<ScannerWebSocket | null>(null);
   const deviceId = useMemo(() => getDeviceId(), []);
   const [sound] = useState(() => new Sound('scan_success.mp3', Sound.MAIN_BUNDLE, () => {}));
-  const permKey =
-    Platform.OS === 'android' ? PERMISSIONS.ANDROID.CAMERA : PERMISSIONS.IOS.CAMERA;
+  const permKey = Platform.OS === 'android' ? PERMISSIONS.ANDROID.CAMERA : PERMISSIONS.IOS.CAMERA;
 
   const ensurePermission = async () => {
-    // 1) CameraKit APIs (alguns OEMs como Xiaomi/MIUI)
     try {
       const kitCheck = await Camera.checkDeviceCameraAuthorizationStatus?.();
       console.log('[perm] CameraKit check ->', kitCheck);
@@ -48,17 +50,16 @@ const App = () => {
       console.log('[perm] CameraKit error', err);
     }
 
-    // 2) react-native-permissions
     try {
       const current = await check(permKey);
       console.log('[perm] RNP current ->', current);
       if (current === RESULTS.GRANTED || current === RESULTS.LIMITED) return true;
       if (current === RESULTS.BLOCKED) {
         Alert.alert(
-          'Permissao bloqueada',
-          'Ative a camera nas configuracoes do sistema para continuar.',
+          'Permissão bloqueada',
+          'Ative a câmera nas configurações do sistema para continuar.',
           [
-            {text: 'Abrir configuracoes', onPress: () => openSettings()},
+            {text: 'Abrir configurações', onPress: () => openSettings()},
             {text: 'Fechar', style: 'cancel'},
           ],
         );
@@ -71,14 +72,11 @@ const App = () => {
       console.log('[perm] RNP error', err);
     }
 
-    // 3) Prompt nativo Android
     if (Platform.OS === 'android') {
       const reqAndroid = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.CAMERA);
       console.log('[perm] PermissionsAndroid request ->', reqAndroid);
       if (reqAndroid === PermissionsAndroid.RESULTS.GRANTED) return true;
     }
-
-    // Ultimo recurso: retorna false (UI continua renderizando camera)
     return false;
   };
 
@@ -92,14 +90,14 @@ const App = () => {
       const saved = await AsyncStorage.getItem(STORAGE_KEY);
       const savedConfig = saved ? JSON.parse(saved) : DEFAULT_CONFIG;
       setConfig(savedConfig);
+
       const client = new ScannerWebSocket(deviceId, savedConfig);
       client.subscribe((isConnected, reason) => {
         setConnected(isConnected);
         if (reason) setConnectionInfo(reason);
       });
-      client.connect();
       wsRef.current = client;
-      return () => client.close();
+      return () => client.shutdown();
     })();
   }, [deviceId]);
 
@@ -121,13 +119,66 @@ const App = () => {
   }, [config]);
 
   const updateConfig = (changes: Partial<AppConfig>) => setConfig(prev => ({...prev, ...changes}));
+
+  const connectNow = () => {
+    if (!wsRef.current) {
+      const client = new ScannerWebSocket(deviceId, config);
+      client.subscribe((isConnected, reason) => {
+        setConnected(isConnected);
+        if (reason) setConnectionInfo(reason);
+      });
+      wsRef.current = client;
+    }
+    wsRef.current.updateConfig(config);
+    wsRef.current.connect();
+    Alert.alert('Conexão', 'Tentando conectar ao servidor...');
+  };
+
+  const parseConfigFromString = (raw: string): ConfigPayload | null => {
+    try {
+      const obj = JSON.parse(raw);
+      if (obj.host && obj.port && obj.token) {
+        return {host: obj.host, port: Number(obj.port), token: String(obj.token)};
+      }
+    } catch {
+      // not json
+    }
+    const regex = /host=([^;]+);?port=([0-9]+);?token=([^;]+)/i;
+    const match = raw.match(regex);
+    if (match) {
+      return {host: match[1], port: Number(match[2]), token: match[3]};
+    }
+    return null;
+  };
+
+  const handleConfigScan = (value: string) => {
+    const parsed = parseConfigFromString(value);
+    if (!parsed) {
+      Alert.alert('QR inválido', 'Não foi possível ler IP/porta/token.');
+      return;
+    }
+    const next: AppConfig = {...config, serverHost: parsed.host, serverPort: String(parsed.port), token: parsed.token};
+    setConfig(next);
+    setConfigScanMode(false);
+    Alert.alert('Pareamento atualizado', `IP: ${parsed.host}\nPorta: ${parsed.port}\nToken: ${parsed.token}`, [
+      {text: 'Conectar agora', onPress: () => connectNow()},
+      {text: 'Fechar', style: 'cancel'},
+    ]);
+  };
+
   const handleRead = (event: any) => {
-    console.log('[scan] raw event', event?.nativeEvent);
     const now = Date.now();
     if (now - lastReadAt < config.scanDelayMs) return;
     const codeValue = event?.nativeEvent?.codeStringValue;
     const format = event?.nativeEvent?.type || 'UNKNOWN';
+    console.log('[scan] raw event', event?.nativeEvent);
+
     if (!codeValue) return;
+
+    if (configScanMode) {
+      handleConfigScan(codeValue);
+      return;
+    }
 
     setLastReadAt(now);
 
@@ -155,7 +206,6 @@ const App = () => {
       </View>
       <Text style={styles.subtitle}>{connectionInfo}</Text>
 
-      {/* Renderiza a camera mesmo sem flag de permissao para evitar loop de bloqueio em OEMs */}
       <Camera
         style={styles.camera}
         cameraType={CameraType.Back}
@@ -165,6 +215,15 @@ const App = () => {
         laserColor="red"
         frameColor="white"
       />
+      {configScanMode && (
+        <View style={styles.overlay}>
+          <Text style={styles.overlayText}>Lendo QR de pareamento...</Text>
+          <Text style={styles.overlaySub}>Aponte para o QR no desktop para preencher IP/porta/token.</Text>
+          <TouchableOpacity style={[styles.button, {marginTop: 8}]} onPress={() => setConfigScanMode(false)}>
+            <Text style={styles.buttonText}>Cancelar leitura de QR</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {hasPermission === false && (
         <View style={styles.banner}>
@@ -183,42 +242,55 @@ const App = () => {
         </View>
       )}
 
-      <View style={styles.form}>
-        <TextInput
-          style={styles.input}
-          placeholder="IP do PC"
-          value={config.serverHost}
-          onChangeText={text => updateConfig({serverHost: text})}
-        />
-        <TextInput
-          style={styles.input}
-          placeholder="Porta"
-          keyboardType="numeric"
-          value={config.serverPort}
-          onChangeText={text => updateConfig({serverPort: text})}
-        />
-        <TextInput
-          style={styles.input}
-          placeholder="Token de pareamento"
-          value={config.token}
-          onChangeText={text => updateConfig({token: text})}
-        />
-        <TextInput
-          style={styles.input}
-          placeholder="Delay entre leituras (ms)"
-          keyboardType="numeric"
-          value={String(config.scanDelayMs)}
-          onChangeText={text => updateConfig({scanDelayMs: Number(text) || DEFAULT_CONFIG.scanDelayMs})}
-        />
+      {showSettings && (
+        <View style={styles.form}>
+          <TextInput
+            style={styles.input}
+            placeholder="IP do PC"
+            value={config.serverHost}
+            onChangeText={text => updateConfig({serverHost: text})}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Porta"
+            keyboardType="numeric"
+            value={config.serverPort}
+            onChangeText={text => updateConfig({serverPort: text})}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Token de pareamento"
+            value={config.token}
+            onChangeText={text => updateConfig({token: text})}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Delay entre leituras (ms)"
+            keyboardType="numeric"
+            value={String(config.scanDelayMs)}
+            onChangeText={text => updateConfig({scanDelayMs: Number(text) || DEFAULT_CONFIG.scanDelayMs})}
+          />
+        </View>
+      )}
+
+      <View style={{flexDirection: 'row', gap: 8, paddingHorizontal: 12}}>
+        <TouchableOpacity style={[styles.button, {flex: 1}]} onPress={connectNow}>
+          <Text style={styles.buttonText}>Conectar</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.button, {flex: 1, backgroundColor: configScanMode ? '#8b949e' : '#238636'}]}
+          onPress={() => {
+            setConfigScanMode(true);
+            Alert.alert('Ler QR do PC', 'Aponte a câmera para o QR que aparece no programa do desktop.');
+          }}>
+          <Text style={styles.buttonText}>{configScanMode ? 'Lendo QR...' : 'Ler QR de pareamento'}</Text>
+        </TouchableOpacity>
       </View>
 
       <TouchableOpacity
-        style={styles.button}
-        onPress={() => {
-          wsRef.current?.connect();
-          Alert.alert('Reconexao', 'Tentando reconectar...');
-        }}>
-        <Text style={styles.buttonText}>Reconectar</Text>
+        style={[styles.button, {marginHorizontal: 12, backgroundColor: '#30363d'}]}
+        onPress={() => setShowSettings(prev => !prev)}>
+        <Text style={styles.buttonText}>{showSettings ? 'Fechar configurações' : 'Configurações'}</Text>
       </TouchableOpacity>
     </SafeAreaView>
   );
@@ -226,7 +298,6 @@ const App = () => {
 
 const styles = StyleSheet.create({
   container: {flex: 1, backgroundColor: '#0d1117'},
-  center: {flex: 1, alignItems: 'center', justifyContent: 'center'},
   header: {flexDirection: 'row', justifyContent: 'space-between', padding: 16, alignItems: 'center'},
   title: {color: '#fff', fontSize: 18, fontWeight: '700'},
   subtitle: {color: '#c9d1d9', fontSize: 12, paddingHorizontal: 16, paddingBottom: 4},
@@ -235,6 +306,17 @@ const styles = StyleSheet.create({
   badgeOff: {backgroundColor: '#8b949e'},
   camera: {flex: 1, borderRadius: 12, overflow: 'hidden', marginHorizontal: 12},
   form: {padding: 12},
+  overlay: {
+    position: 'absolute',
+    top: 120,
+    left: 20,
+    right: 20,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    padding: 12,
+    borderRadius: 8,
+  },
+  overlayText: {color: '#fff', fontWeight: '700', marginBottom: 4, textAlign: 'center'},
+  overlaySub: {color: '#c9d1d9', fontSize: 12, textAlign: 'center'},
   input: {
     backgroundColor: '#161b22',
     color: '#fff',
@@ -248,10 +330,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#1f6feb',
     padding: 14,
     borderRadius: 8,
-    margin: 12,
+    marginVertical: 12,
     alignItems: 'center',
   },
-  buttonText: {color: '#fff', fontWeight: '700'},
+  buttonText: {color: '#fff', fontWeight: '700', textAlign: 'center'},
   banner: {
     backgroundColor: '#ffcc00',
     padding: 10,

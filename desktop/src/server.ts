@@ -1,5 +1,6 @@
 import {WebSocketServer, WebSocket} from 'ws';
 import os from 'os';
+import {clipboard} from 'electron';
 import {ScanPayload, ConnectionInfo} from './types';
 import robot from 'robotjs';
 
@@ -73,7 +74,8 @@ export class ScannerServer {
 
   private typeBarcode(barcode: string) {
     // Digita o código onde o foco do usuário estiver e finaliza com ENTER.
-    robot.typeString(barcode);
+    clipboard.writeText(barcode);
+    robot.keyTap('v', 'control');
     robot.keyTap('enter');
   }
 
