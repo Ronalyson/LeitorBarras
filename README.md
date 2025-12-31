@@ -1,13 +1,12 @@
-# Leitor de Barras Wi-Fi (Android + Desktop)
+# Leitor de Barras Wi‑Fi (Android + Desktop)
 
 Sistema offline que transforma um Android em leitor de códigos de barras: o app móvel lê EAN-13/EAN-8/UPC-A/Code-128/Code-39/QR e envia via WebSocket local para o app desktop Windows, que cola o código inteiro no campo focado e envia ENTER (simulação de leitor USB).
 
 ## Arquitetura
-- **mobile/** – React Native (TypeScript) com `react-native-camera-kit`, leitura contínua, pareamento por QR, conexão WebSocket manual e reconexão automática após a primeira conexão.
+- **mobile/** – React Native (TypeScript) com `react-native-camera-kit`. Pareamento por QR, conexão manual, reconexão após a primeira conexão, tela de câmera limpa e menu de configurações.
 - **desktop/** – Electron (TypeScript) com servidor WebSocket (`ws`), simulação de teclado (`robotjs` via Ctrl+V + Enter) e QR na UI para configurar o mobile sem digitar.
 
 ## Protocolo
-Payload enviado pelo Android:
 ```json
 { "type": "SCAN", "deviceId": "ANDROID_001", "barcode": "7891234567890", "format": "EAN_13", "timestamp": "2025-01-01T10:30:00" }
 ```
@@ -53,25 +52,22 @@ npx react-native bundle --platform android --dev false --reset-cache --entry-fil
 cd android
 ./gradlew assembleDebug   # APK em android/app/build/outputs/apk/debug
 ```
-3) Ajustes  
-   - Coloque `scan_success.mp3` em `android/app/src/main/res/raw/` (feedback sonoro).  
-4) Uso  
+3) Uso  
    - Toque **Ler QR de pareamento** e aponte para o QR exibido no desktop (preenche IP/porta/token).  
-   - Toque **Conectar**; reconexão automática ocorre apenas após a primeira conexão manual.  
-   - Botão **Configurações** abre/fecha os campos para não poluir a tela de câmera.  
-   - Leitura contínua; feedback vibratório/sonoro opcionais.
+   - Toque **Conectar**; reconexão automática só depois da primeira conexão manual.  
+   - Botão **Configurações** abre/fecha os campos para manter a tela de câmera limpa.  
+   - Leitura contínua com feedback vibratório/sonoro.
 
 ## Segurança e rede
 - Servidor escuta apenas rede local (192.168/10/172.16). Sem internet ou serviços externos.
 - Token simples configurável no desktop e no mobile.
 
-## Notas de build offline
+## Build offline
 - Pacotes open-source; tipos locais em `desktop/src/types/robotjs.d.ts` e `desktop/src/types/qrcode.d.ts`.
-- `electron` permanece em devDependencies (exigência do electron-builder).
-- Renderer é copiado de `src/renderer/` para `dist/renderer` via `scripts/copy-static.js`; coloque novos assets em `src/renderer/`.
+- `electron` em devDependencies (requisito do electron-builder).
+- Renderer copiado de `src/renderer/` para `dist/renderer` via `scripts/copy-static.js`; novos assets ficam em `src/renderer/`.
 
 ## Passos rápidos
 - `yarn install` em `mobile` e `desktop`.
-- Adicionar `scan_success.mp3` no mobile (`android/app/src/main/res/raw/`).
 - Gerar APK (`./gradlew assembleDebug` ou `assembleRelease`) e instalador (`yarn dist`).
 - No desktop instalado, abra, leia o QR pelo mobile e conecte; o scanner cola os códigos instantaneamente no campo focado.
