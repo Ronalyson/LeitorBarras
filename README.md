@@ -1,79 +1,77 @@
 # Leitor de Barras Wi-Fi (Android + Desktop)
 
-Sistema completo para substituir leitor físico de código de barras: o Android lê códigos e envia via WebSocket local para o app desktop Windows, que digita automaticamente no foco ativo (ERP, navegador, legado).
+Sistema offline que transforma um Android em leitor de códigos de barras: o app móvel lê EAN-13/EAN-8/UPC-A/Code-128/Code-39/QR e envia via WebSocket local para o app desktop Windows, que cola o código inteiro no campo focado e envia ENTER (simulação de leitor USB).
 
-## Estrutura
-- `mobile/` — App Android React Native (TypeScript) com `react-native-vision-camera` + `vision-camera-code-scanner`.
-- `desktop/` — App Electron (TypeScript) com servidor WebSocket (`ws`) e simulação de teclado (`robotjs`).
-- `shared/` — Tipos compartilhados simples.
-
-> Comentários no código foram escritos como se fossem meus, explicando escolhas e funcionamento ponto a ponto.
+## Arquitetura
+- **mobile/** – React Native (TypeScript) com `react-native-camera-kit`, leitura contínua, pareamento por QR, conexão WebSocket manual e reconexão automática após a primeira conexão.
+- **desktop/** – Electron (TypeScript) com servidor WebSocket (`ws`), simulação de teclado (`robotjs` via Ctrl+V + Enter) e QR na UI para configurar o mobile sem digitar.
 
 ## Protocolo
-Payload JSON enviado pelo Android:
+Payload enviado pelo Android:
 ```json
 { "type": "SCAN", "deviceId": "ANDROID_001", "barcode": "7891234567890", "format": "EAN_13", "timestamp": "2025-01-01T10:30:00" }
 ```
-Headers de handshake: `Authorization: <token>`, `X-Device-ID: <deviceId>`.
+Headers: `Authorization: <token>`, `X-Device-ID: <deviceId>`.
 
-## Pré-requisitos (offline/local)
-- Node.js 18+ e Yarn/NPM offline com cache local dos pacotes listados.
-- Java JDK (recomendado) para build Android.
-- Android SDK/NDK + emulador/dispositivo físico (API 26+).
-- Para o desktop: Build tools do Windows para compilar `robotjs`.
-
-## Mobile (Android)
-1) Instalar dependências (usando cache local):
-```bash
-cd mobile
-yarn install
-```
-2) Android:
-```bash
-cd android
-./gradlew assembleRelease   # gera APK em android/app/build/outputs/apk/release
-```
-3) Ajustes necessários:
-   - Adicione um som em `android/app/src/main/res/raw/scan_success.mp3` para feedback.
-   - Garanta permissões de câmera no AndroidManifest (RN já adiciona; se necessário, inclua `android.permission.CAMERA`).
-4) Uso:
-   - Abra o app, informe IP do PC, porta e token.
-   - Aponte para o código; leitura contínua sem botão. Feedback vibratório/sonoro opcional.
+## Pré-requisitos
+- Node.js 18+, Yarn/NPM com cache local.
+- Java JDK, Android SDK/NDK, dispositivo/emulador API 26+.
+- Windows build tools para compilar `robotjs`.
 
 ## Desktop (Windows)
-1) Instalar dependências (versão 1.0.1):
+1) Dependências  
 ```bash
 cd desktop
 yarn install
 ```
-2) Build:
+2) Build / instalador  
 ```bash
-yarn build   # compila TS para dist/ e copia index.html do renderer
-yarn dist    # gera instalador .exe via electron-builder (chama build antes)
+yarn build   # compila TS e copia renderer para dist/
+yarn dist    # gera instalador .exe (electron-builder)
 ```
-3) Execução local:
+3) Dev  
 ```bash
-yarn start   # modo dev com electron
+yarn start
 ```
-4) Funcionalidades:
-   - Exibe IP local e porta do servidor WebSocket.
-   - Valida token de pareamento no handshake.
-   - Aceita múltiplos Androids, log em tempo real, lista de dispositivos.
-   - Simula leitor USB digitando código + ENTER onde o cursor estiver (via robotjs).
-   - Tray + início automático com Windows (electron-builder + `setLoginItemSettings`).
+4) Funcionalidades  
+   - Exibe IP/porta/token e gera QR para pareamento do mobile.  
+   - Valida token, aceita múltiplos dispositivos, log em tempo real, lista de clientes.  
+   - Cola código via Ctrl+V e envia ENTER no foco ativo.  
+   - Tray + início automático com Windows; botão Sair encerra de fato.
+
+## Mobile (Android)
+1) Dependências  
+```bash
+cd mobile
+yarn install
+```
+2) Bundle + APK  
+```bash
+npx react-native bundle --platform android --dev false --reset-cache --entry-file index.js \
+  --bundle-output android/app/src/main/assets/index.android.bundle \
+  --assets-dest android/app/src/main/res
+cd android
+./gradlew assembleDebug   # APK em android/app/build/outputs/apk/debug
+```
+3) Ajustes  
+   - Coloque `scan_success.mp3` em `android/app/src/main/res/raw/` (feedback sonoro).  
+4) Uso  
+   - Toque **Ler QR de pareamento** e aponte para o QR exibido no desktop (preenche IP/porta/token).  
+   - Toque **Conectar**; reconexão automática ocorre apenas após a primeira conexão manual.  
+   - Botão **Configurações** abre/fecha os campos para não poluir a tela de câmera.  
+   - Leitura contínua; feedback vibratório/sonoro opcionais.
 
 ## Segurança e rede
-- Servidor escuta apenas rede local (IPs 192.168/10/172.16). Não usa internet/serviços externos.
-- Troca autenticada por token simples; personalize no desktop e mobile.
+- Servidor escuta apenas rede local (192.168/10/172.16). Sem internet ou serviços externos.
+- Token simples configurável no desktop e no mobile.
 
-## Observações de build offline
-- Todos os pacotes são open-source e gratuitos.
-- Para evitar dependência externa de tipos, removi `@types/robotjs` e incluí definição local em `desktop/src/types/robotjs.d.ts`. Caso o build do `robotjs` falhe, instale as ferramentas de build do Windows (MSVC + Python) e recompile; alternativa: trocar por `node-key-sender` (ajuste `desktop/src/server.ts`).
-- O `electron` fica em `devDependencies` (exigência do electron-builder). Se mover para `dependencies`, o `yarn dist` acusa erro.
-- O build agora copia os arquivos estáticos do renderer (index.html, etc.) para `dist/renderer` antes de empacotar; se adicionar novos assets, mantenha-os em `src/renderer/`.
-- Se precisar assinar o .exe, configure certificados no `electron-builder`.
+## Notas de build offline
+- Pacotes open-source; tipos locais em `desktop/src/types/robotjs.d.ts` e `desktop/src/types/qrcode.d.ts`.
+- `electron` permanece em devDependencies (exigência do electron-builder).
+- Renderer é copiado de `src/renderer/` para `dist/renderer` via `scripts/copy-static.js`; coloque novos assets em `src/renderer/`.
 
-## Próximos passos
-- Executar `yarn install` nos diretórios `mobile` e `desktop` usando cache local.
-- Colocar o arquivo de som em `android/app/src/main/res/raw/scan_success.mp3`.
-- Gerar APK (`./gradlew assembleRelease`) e instalador Windows (`yarn dist`).
+## Passos rápidos
+- `yarn install` em `mobile` e `desktop`.
+- Adicionar `scan_success.mp3` no mobile (`android/app/src/main/res/raw/`).
+- Gerar APK (`./gradlew assembleDebug` ou `assembleRelease`) e instalador (`yarn dist`).
+- No desktop instalado, abra, leia o QR pelo mobile e conecte; o scanner cola os códigos instantaneamente no campo focado.
